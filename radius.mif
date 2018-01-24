@@ -1,0 +1,168 @@
+# MIF 2.2
+# Description: Multiatlas Demonstration
+
+#################################
+# Constants
+
+set PI [expr {4*atan(1.0)}]
+set MU0 [expr {4*$PI*1e-7}]
+
+#################################
+
+set stop 0.01;            #Stopping dm/dt
+set cell 10e-9;            #Cell side dimension
+
+
+Parameter L 1e-6; # L = 10 micrometers
+Parameter W1 100e-9; # w1 = 100 nm
+set ratio 4;
+set W2 [expr {$W1/$ratio}]; # w2 = 50 nm (inizio con ratio = 2)
+set cellz 25e-9; # provo a usare una sola cella lungo zeta <- non ci son riuscito
+
+
+#################################
+# Material constants
+
+Parameter Ms 800e3;			#Saturation Magnetization (A/m)
+Parameter A 10e-12;				#Exchange constant (J/m)
+#Parameter K 48e3;         #Anisotropy constant (J/m^3)
+
+
+
+#################################
+# Atlas and mesh
+proc Pad {x y z} {
+  set r 20e-9
+  set W1 100e-9
+  set L 1e-6
+  set xrad1 [expr {$x/$r*$L-1}]
+  set yrad1 [expr {$y/$r*$W1-1}]
+  set circ1 [expr {$xrad1*$xrad1+$yrad1*$yrad1}]
+  if {$y < $r/$W1 && $x < $r/$L && $circ1 > 1} {return 0}
+
+  set yc2 [expr {($W1-$r)/$W1}]
+  set xrad2 [expr {$x/$r*$L-1}]
+  set yrad2 [expr {$y/$r*$W1-($W1-$r)/$r}]
+  set circ2 [expr {$xrad2*$xrad2+$yrad2*$yrad2}]
+  if {$y > $yc2 && $x < $r/$L && $circ2 > 1} {return 0}
+
+
+  set xc3 [expr {($L-$r)/$L}]
+  set xrad3 [expr {$x/$r*$L-($L-$r)/$r}]
+  set yrad3 [expr {$y/$r*$W1-($W1-$r)/$r}]
+  set circ3 [expr {$xrad3*$xrad3+$yrad3*$yrad3}]
+  if {$y > $yc2 && $x > $xc3 && $circ3 > 1} {return 0}
+
+  set xrad4 [expr {$x/$r*$L-($L-$r)/$r}]
+  set yrad4 [expr {$y/$r*$W1-1}]
+  set circ4 [expr {$xrad4*$xrad4+$yrad4*$yrad4}]
+  if {$y < $r/$W1 && $x > $xc3 && $circ4 > 1} {return 0}
+  return 1
+}
+
+
+
+Specify Oxs_MultiAtlas:atlas [subst {
+   atlas { Oxs_ScriptAtlas:magnetic1 {
+       xrange {0 $L}
+       yrange {0 $W1}
+       zrange {0 $cellz}
+       regions {magnetic1}
+       script Pad
+   }   }
+   atlas { Oxs_BoxAtlas:magnetic2 {
+       xrange {$L [expr {2*$L}]}
+       yrange {[expr {($W1)/2-($W2)/2}] [expr {($W1)/2+($W2)/2}]}
+       zrange {0 $cellz}
+   }   }
+
+}]
+
+
+
+#subst is used to replace $K with the parameter defined above
+Specify Oxs_RectangularMesh:mesh [subst {
+    cellsize {$cell $cell $cellz} 
+    atlas :atlas
+}]
+
+#################################
+# Uniaxial Anisotropy - no crystal anisotropy
+
+
+
+#################################
+# Exchange
+
+Specify Oxs_ExchangePtwise [subst {
+    A {
+        Oxs_AtlasScalarField {
+            atlas :atlas
+            values {
+				universe 0
+                magnetic1  $A
+				magnetic2 $A
+            } 
+        } 
+    }
+}]
+
+
+################################# 
+# Demagnetizing energy
+
+Specify Oxs_Demag {}
+
+#Hysteresis loop 
+#External field
+
+Specify Oxs_UZeeman {
+    multiplier 79.57
+    Hrange { 
+        { 1000 0.0 0.0 -1000 0.01 0.0 40}
+        { -1000 0.0 0.0 1000 0.01 0.0 40}
+    }
+}
+
+
+#################################
+# Driver and Evolver
+
+Specify Oxs_RungeKuttaEvolve:evolver {
+    do_precess 1
+    alpha 0.5
+    comment {alpha 0.027}
+    method rkf54
+    comment {gamma_G 2.32e5}
+}
+
+
+Specify Oxs_TimeDriver [subst {
+    evolver :evolver
+    mesh :mesh
+    stopping_dm_dt $stop
+    Ms {
+         Oxs_AtlasScalarField {
+            atlas :atlas
+			default_value 0.0
+            values {
+				universe 0
+                magnetic1    $Ms
+				magnetic2	$Ms
+            } 
+        }
+    }
+    m0 { 
+        Oxs_AtlasVectorField {
+            atlas :atlas
+            norm 1
+			default_value {0 0 0}
+            values {
+				universe {0 0 0}
+        magnetic1   {-1 0 0 }
+				magnetic2   {-1 0 0}
+            }
+        }
+    }
+}]
+

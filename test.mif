@@ -1,0 +1,136 @@
+# MIF 2.2
+# Description: Multiatlas Demonstration
+
+#################################
+# Constants
+
+set PI [expr {4*atan(1.0)}]
+set MU0 [expr {4*$PI*1e-7}]
+
+#################################
+
+set stop 0.001;            #Stopping dm/dt
+set cell 5e-9;            #Cell side dimension
+
+set length 20e-9;
+set L 1e-6; # L = 10 micrometers
+set W1 100e-9; # w1 = 100 nm
+set ratio 5;
+set W2 [expr {$W1/$ratio}]; # w2 = 50 nm (inizio con ratio = 2)
+set cellz 25e-9; # provo a usare una sola cella lungo zeta <- non ci son riuscito
+
+
+#################################
+# Material constants
+
+Parameter Ms 800e3;			#Saturation Magnetization (A/m)
+Parameter A 10e-12;				#Exchange constant (J/m)
+#Parameter K 48e3;         #Anisotropy constant (J/m^3)
+
+
+
+#################################
+# Atlas and mesh
+
+
+Specify Oxs_MultiAtlas:atlas [subst {
+   atlas { Oxs_BoxAtlas:magnetic {
+       xrange {0 $L}
+       yrange {0 $W1}
+       zrange {0 $cellz}
+   }   }
+   atlas { Oxs_BoxAtlas:magnetic2 {
+       xrange {$L [expr {2*$L}]}
+       yrange {[expr {($W1)/2-($W2)/2}] [expr {($W1)/2+($W2)/2}]}
+       zrange {0 $cellz}
+   }   }
+}]
+
+
+
+#subst is used to replace $K with the parameter defined above
+Specify Oxs_RectangularMesh:mesh [subst {
+    cellsize {$cell $cell $cell} 
+    atlas :atlas
+}]
+
+#################################
+# Uniaxial Anisotropy - no crystal anisotropy
+
+
+
+#################################
+# Exchange
+
+Specify Oxs_ExchangePtwise [subst {
+    A {
+        Oxs_AtlasScalarField {
+            atlas :atlas
+            values {
+				universe 0
+                magnetic  $A
+				magnetic2 $A
+            } 
+        } 
+    }
+}]
+
+
+################################# 
+# Demagnetizing energy
+
+Specify Oxs_Demag {}
+
+#Hysteresis loop 
+#External field
+
+Specify Oxs_UZeeman {
+    multiplier 79.57
+    Hrange { 
+        { -6000 0.0 0.0 -750 0.01 0.0 40}
+
+    }
+}
+
+
+#################################
+# Driver and Evolver
+
+Specify Oxs_RungeKuttaEvolve:evolver {
+    do_precess 1
+    alpha 0.5
+    comment {alpha 0.027}
+    method rkf54
+    comment {gamma_G 2.32e5}
+}
+
+
+Specify Oxs_TimeDriver [subst {
+    evolver :evolver
+    mesh :mesh
+    stopping_dm_dt $stop
+    Ms {
+         Oxs_AtlasScalarField {
+            atlas :atlas
+			default_value 0.0
+            values {
+				universe 0
+                magnetic    $Ms
+				magnetic2	$Ms
+            } 
+        }
+    }
+    m0 { 
+        Oxs_AtlasVectorField {
+            atlas :atlas
+            norm 1
+			default_value {0 0 0}
+            values {
+				universe {0 0 0}
+        magnetic   {1 0 0 }
+				magnetic2   {1 0 0}
+            }
+        }
+    }
+}]
+
